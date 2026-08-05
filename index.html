@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Monitor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="app-header">
+    <div class="header-left">
+      <button id="menuToggle" class="icon-btn" title="Menu" aria-label="Abrir menu">☰</button>
+      <span class="logo">📊 <span class="logo-text">Crypto Monitor</span></span>
+    </div>
+    <div class="header-center">
+      <span id="apiStatus" class="status-dot status-unknown" title="Status da API"></span>
+      <span class="status-label">API</span>
+      <span class="header-sep">•</span>
+      <span id="lastUpdate" class="last-update">Última atualização: --:--:--</span>
+    </div>
+    <div class="header-right">
+      <button id="refreshBtn" class="icon-btn" title="Atualizar agora" aria-label="Atualizar">🔄</button>
+      <button id="soundBtn" class="icon-btn" title="Som" aria-label="Alternar som">🔊</button>
+      <button id="themeBtn" class="icon-btn" title="Tema" aria-label="Alternar tema">🌙</button>
+    </div>
+  </header>
+
+  <div id="demoModeBanner" class="demo-banner hidden">🎮 MODO DEMO — exibindo dados simulados (API indisponível ou desativada)</div>
+
+  <div class="app-body">
+    <nav id="sidebar" class="sidebar">
+      <button class="nav-item active" data-view="dashboard"><span class="nav-icon">📈</span><span class="nav-label">Painel</span></button>
+      <button class="nav-item" data-view="assets"><span class="nav-icon">💰</span><span class="nav-label">Ativos</span></button>
+      <button class="nav-item" data-view="favorites"><span class="nav-icon">⭐</span><span class="nav-label">Favoritos</span></button>
+      <button class="nav-item" data-view="alerts"><span class="nav-icon">🔔</span><span class="nav-label">Alertas</span></button>
+      <button class="nav-item" data-view="history"><span class="nav-icon">📋</span><span class="nav-label">Histórico</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></button>
+    </nav>
+    <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+
+    <main class="main-content">
+
+      <!-- DASHBOARD -->
+      <section id="view-dashboard" class="view active">
+        <div class="dashboard-toolbar">
+          <div class="asset-picker">
+            <select id="assetSelect" aria-label="Selecionar ativo"></select>
+          </div>
+          <div class="timeframe-picker" id="timeframePicker">
+            <button data-tf="1m" class="tf-btn">1M</button>
+            <button data-tf="5m" class="tf-btn">5M</button>
+            <button data-tf="15m" class="tf-btn">15M</button>
+            <button data-tf="1h" class="tf-btn">1H</button>
+            <button data-tf="4h" class="tf-btn">4H</button>
+            <button data-tf="1d" class="tf-btn active">1D</button>
+            <button data-tf="1w" class="tf-btn">1W</button>
+          </div>
+          <div class="indicator-toggles" id="indicatorToggles">
+            <label><input type="checkbox" data-ind="sma9"> SMA 9</label>
+            <label><input type="checkbox" data-ind="sma20" checked> SMA 20</label>
+            <label><input type="checkbox" data-ind="sma50"> SMA 50</label>
+            <label><input type="checkbox" data-ind="ema21" checked> EMA 21</label>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="chart-panel">
+            <div id="priceChart" class="price-chart"></div>
+            <div class="indicator-cards">
+              <div class="ind-card">
+                <div class="ind-card-title">RSI (14)</div>
+                <div class="ind-card-value" id="rsiValue">--</div>
+                <div class="ind-card-sub" id="rsiZone">--</div>
+              </div>
+              <div class="ind-card">
+                <div class="ind-card-title">MACD</div>
+                <div class="ind-card-value" id="macdValue">--</div>
+                <div class="ind-card-sub" id="macdSignalDesc">--</div>
+              </div>
+              <div class="ind-card">
+                <div class="ind-card-title">Bollinger Bands</div>
+                <div class="ind-card-value" id="bbValue">--</div>
+                <div class="ind-card-sub" id="bbPosition">--</div>
+              </div>
+              <div class="ind-card">
+                <div class="ind-card-title">Volume</div>
+                <div class="ind-card-value" id="volValue">--</div>
+                <div class="ind-card-sub" id="volVsAvg">--</div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="asset-panel">
+            <div class="asset-panel-head">
+              <div id="assetName" class="asset-name">--</div>
+              <div id="assetPrice" class="asset-price">--</div>
+              <div id="assetChange" class="asset-change">--</div>
+            </div>
+            <div class="asset-stats">
+              <div class="stat-row"><span>Alta 24h</span><span id="statHigh">--</span></div>
+              <div class="stat-row"><span>Baixa 24h</span><span id="statLow">--</span></div>
+              <div class="stat-row"><span>Volume 24h</span><span id="statVolume">--</span></div>
+              <div class="stat-row"><span>Market Cap</span><span id="statMcap">--</span></div>
+            </div>
+            <div class="trend-box" id="trendBox">
+              <div class="trend-label">Análise de tendência</div>
+              <div class="trend-value" id="trendValue">🔍 Analisando...</div>
+            </div>
+            <div class="ma-distance">
+              <div class="ma-distance-title">Distância das médias</div>
+              <div class="stat-row"><span>EMA 21</span><span id="distEma21">--</span></div>
+              <div class="stat-row"><span>SMA 50</span><span id="distSma50">--</span></div>
+              <div class="stat-row"><span>SMA 200</span><span id="distSma200">--</span></div>
+            </div>
+            <button id="favToggleBtn" class="btn btn-outline full-width">☆ Adicionar aos favoritos</button>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ATIVOS -->
+      <section id="view-assets" class="view">
+        <div class="view-toolbar">
+          <h2>Ativos</h2>
+          <input type="search" id="assetSearch" class="search-input" placeholder="🔎 Pesquisar criptomoeda...">
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="assetsTable">
+            <thead>
+              <tr>
+                <th></th>
+                <th data-sort="name">Nome</th>
+                <th data-sort="symbol">Símbolo</th>
+                <th data-sort="price">Preço</th>
+                <th data-sort="change">Var 24h</th>
+                <th data-sort="volume">Volume</th>
+                <th>RSI</th>
+                <th>Tendência</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="assetsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- FAVORITOS -->
+      <section id="view-favorites" class="view">
+        <div class="view-toolbar"><h2>Favoritos</h2></div>
+        <div class="favorites-grid" id="favoritesGrid">
+          <p class="empty-state">Nenhum favorito ainda. Adicione ativos pelo Painel ou pela lista de Ativos.</p>
+        </div>
+      </section>
+
+      <!-- ALERTAS -->
+      <section id="view-alerts" class="view">
+        <div class="view-toolbar">
+          <h2>Alertas</h2>
+          <button id="newAlertBtn" class="btn btn-primary">+ Novo Alerta</button>
+        </div>
+
+        <div id="alertFormPanel" class="form-panel hidden">
+          <h3>Criar Alerta</h3>
+          <div class="form-grid">
+            <label>Ativo
+              <select id="alertAsset"></select>
+            </label>
+            <label>Tipo de alerta
+              <select id="alertType"></select>
+            </label>
+            <label id="alertValueWrap">Valor
+              <input type="number" id="alertValue" step="any">
+            </label>
+            <label>Cooldown
+              <select id="alertCooldown">
+                <option value="once">Disparar apenas uma vez</option>
+                <option value="5m">5 minutos</option>
+                <option value="15m">15 minutos</option>
+                <option value="30m">30 minutos</option>
+                <option value="1h">1 hora</option>
+                <option value="4h">4 horas</option>
+              </select>
+            </label>
+            <label class="span-2">Mensagem personalizada (opcional)
+              <input type="text" id="alertMessage" placeholder="Ex: BTC rompeu resistência!">
+            </label>
+          </div>
+          <div class="form-actions">
+            <button id="saveAlertBtn" class="btn btn-primary">Salvar Alerta</button>
+            <button id="cancelAlertBtn" class="btn btn-outline">Cancelar</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="alertsTable">
+            <thead>
+              <tr>
+                <th>Ativo</th>
+                <th>Tipo</th>
+                <th>Condição</th>
+                <th>Cooldown</th>
+                <th>Status</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="alertsTableBody"></tbody>
+          </table>
+          <p class="empty-state hidden" id="alertsEmpty">Nenhum alerta configurado ainda.</p>
+        </div>
+      </section>
+
+      <!-- HISTÓRICO -->
+      <section id="view-history" class="view">
+        <div class="view-toolbar">
+          <h2>Histórico</h2>
+          <div class="history-controls">
+            <select id="historyAssetFilter"><option value="">Todos os ativos</option></select>
+            <input type="date" id="historyDateFilter">
+            <button id="exportCsvBtn" class="btn btn-outline">⬇ Exportar CSV</button>
+            <button id="clearHistoryBtn" class="btn btn-danger">🗑 Limpar</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="historyTable">
+            <thead>
+              <tr>
+                <th>Data</th><th>Hora</th><th>Ativo</th><th>Tipo</th><th>Condição</th><th>Preço</th><th>Mensagem</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+          </table>
+          <p class="empty-state hidden" id="historyEmpty">Nenhum evento registrado ainda.</p>
+        </div>
+      </section>
+
+      <!-- CONFIGURAÇÕES -->
+      <section id="view-settings" class="view">
+        <div class="view-toolbar"><h2>Configurações</h2></div>
+        <div class="settings-grid">
+
+          <div class="settings-card">
+            <h3>Geral</h3>
+            <label>Moeda
+              <select id="cfgCurrency">
+                <option value="usd">USD ($)</option>
+                <option value="brl">BRL (R$)</option>
+                <option value="eur">EUR (€)</option>
+              </select>
+            </label>
+            <label>Intervalo de atualização
+              <select id="cfgInterval">
+                <option value="5000">5 segundos</option>
+                <option value="10000">10 segundos</option>
+                <option value="30000" selected>30 segundos</option>
+                <option value="60000">1 minuto</option>
+                <option value="300000">5 minutos</option>
+              </select>
+            </label>
+            <label>Formato de hora
+              <select id="cfgHourFormat">
+                <option value="24h">24 horas</option>
+                <option value="12h">12 horas (AM/PM)</option>
+              </select>
+            </label>
+            <label>Casas decimais
+              <input type="number" id="cfgDecimals" min="2" max="8" value="2">
+            </label>
+          </div>
+
+          <div class="settings-card">
+            <h3>Aparência</h3>
+            <label>Tema
+              <select id="cfgTheme">
+                <option value="dark">Escuro</option>
+                <option value="light">Claro</option>
+              </select>
+            </label>
+            <label>Período padrão do gráfico
+              <select id="cfgDefaultPeriod">
+                <option value="1m">1M</option>
+                <option value="5m">5M</option>
+                <option value="15m">15M</option>
+                <option value="1h">1H</option>
+                <option value="4h">4H</option>
+                <option value="1d" selected>1D</option>
+                <option value="1w">1W</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="settings-card">
+            <h3>Notificações e Som</h3>
+            <label class="row"><input type="checkbox" id="cfgNotifications" checked> Ativar notificações do navegador</label>
+            <label class="row"><input type="checkbox" id="cfgSounds" checked> Ativar sons</label>
+            <label>Volume do som
+              <input type="range" id="cfgVolume" min="0" max="100" value="50">
+            </label>
+          </div>
+
+          <div class="settings-card">
+            <h3>Ações</h3>
+            <div class="settings-actions">
+              <button id="exportConfigBtn" class="btn btn-outline">⬇ Exportar configuração (JSON)</button>
+              <label class="btn btn-outline file-btn">⬆ Importar configuração
+                <input type="file" id="importConfigInput" accept="application/json" hidden>
+              </label>
+              <button id="testAlertBtn" class="btn btn-outline">🔔 Testar alerta</button>
+              <button id="demoModeBtn" class="btn btn-outline">🎮 Alternar Modo Demo</button>
+              <button id="resetAllBtn" class="btn btn-danger">⚠ Resetar tudo</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <p>⚠️ Sistema informativo e educacional. Não é recomendação de investimento.</p>
+  </footer>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="api.js"></script>
+<script src="indicators.js"></script>
+<script src="alerts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
