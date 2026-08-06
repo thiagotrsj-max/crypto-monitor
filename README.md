@@ -7,7 +7,8 @@ Sistema de monitoramento de criptomoedas que roda **inteiramente no navegador** 
 - Gráfico de candles (TradingView Lightweight Charts) com timeframes de 1M a 1W
 - Indicadores técnicos: SMA (9/20/50/200), EMA (9/21), RSI (14), MACD, Bandas de Bollinger, Volume médio
 - Classificação automática de tendência combinando preço, médias, RSI, MACD e volume
-- Sistema de alertas com 26 tipos de condição (preço, médias, RSI, MACD, Bollinger, volume, tendência), cooldown configurável, notificações do navegador + som
+- Sistema de alertas com 28 tipos de condição (preço, médias, RSI, MACD, Bollinger, volume, tendência), cooldown configurável, notificações do navegador + som
+  - Inclui alerta de **cruzamento de médias configurável**: escolha uma ou mais moedas, o timeframe (1M a 1W) e o tipo/período de cada média (SMA ou EMA, períodos 7/9/21/50/100) — ex: "EMA 7 cruza para cima da EMA 21 no 1H"
 - Views: Painel, Ativos (tabela ordenável e pesquisável), Favoritos, Alertas, Histórico (com exportação CSV) e Configurações
 - Modo Demo com dados simulados (manual ou automático, caso a API fique indisponível)
 - Tema claro/escuro, responsivo para mobile/tablet/desktop

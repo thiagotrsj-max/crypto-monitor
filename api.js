@@ -25,14 +25,18 @@ const CryptoAPI = (() => {
     marketChart: 60 * 1000,   // 60s
   };
 
+  // `days` foi dimensionado para garantir candles suficientes mesmo para médias móveis de
+  // período 100 (usadas pelos alertas de cruzamento configurável — ver alerts.js). Como o custo
+  // de uma chamada à API não depende de `days` (é sempre 1 requisição), pedir mais histórico
+  // aqui não aumenta o risco de rate-limit.
   const TIMEFRAME_CONFIG = {
     '1m':  { days: 1,   bucketMs: 5 * 60 * 1000 },
     '5m':  { days: 1,   bucketMs: 5 * 60 * 1000 },
     '15m': { days: 1,   bucketMs: 15 * 60 * 1000 },
-    '1h':  { days: 7,   bucketMs: 60 * 60 * 1000 },
-    '4h':  { days: 30,  bucketMs: 4 * 60 * 60 * 1000 },
-    '1d':  { days: 90,  bucketMs: 24 * 60 * 60 * 1000 },
-    '1w':  { days: 365, bucketMs: 7 * 24 * 60 * 60 * 1000 },
+    '1h':  { days: 14,  bucketMs: 60 * 60 * 1000 },
+    '4h':  { days: 60,  bucketMs: 4 * 60 * 60 * 1000 },
+    '1d':  { days: 200, bucketMs: 24 * 60 * 60 * 1000 },
+    '1w':  { days: 800, bucketMs: 7 * 24 * 60 * 60 * 1000 },
   };
 
   const cache = new Map(); // key -> { data, expiresAt }

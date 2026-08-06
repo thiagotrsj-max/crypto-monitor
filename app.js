@@ -356,7 +356,55 @@ async function doRefresh() {
     if (!isDemoActive()) await sleep(700);
   }
 
+  await evaluateCustomMACrossAlerts();
+
   document.getElementById('lastUpdate').textContent = `Última atualização: ${fmtTime()}`;
+  renderCurrentView();
+}
+
+/** Últimos dois valores não-nulos de uma série de indicador (penúltimo, último). */
+function lastTwo(series) {
+  const vals = series.filter((v) => v !== null && v !== undefined);
+  return [vals.length >= 2 ? vals[vals.length - 2] : null, vals.length >= 1 ? vals[vals.length - 1] : null];
+}
+
+/**
+ * Avalia os alertas de "Cruzamento de médias (configurável)" — cada um tem seu próprio
+ * timeframe e período de médias, escolhidos livremente pelo usuário (ex: EMA 7 x EMA 21 no 1H
+ * para o Bitcoin). Diferente dos outros alertas (que reaproveitam o contexto diário calculado
+ * no loop principal), estes exigem candles do timeframe específico escolhido — por isso rodam
+ * numa fila própria, agrupando alertas que compartilham o mesmo (ativo, timeframe) para não
+ * buscar os mesmos candles duas vezes, e com o mesmo throttle de 700ms para não estourar o
+ * rate-limit da CoinGecko. Só roda algo aqui se o usuário tiver criado esse tipo de alerta.
+ */
+async function evaluateCustomMACrossAlerts() {
+  const customAlerts = AlertsEngine.listAlerts().filter((a) => a.enabled && AlertsEngine.isCustomCrossType(a.type));
+  if (!customAlerts.length) return;
+
+  const groups = new Map(); // "cryptoId|timeframe" -> { cryptoId, timeframe, alerts: [] }
+  customAlerts.forEach((a) => {
+    const key = `${a.cryptoId}|${a.timeframe}`;
+    if (!groups.has(key)) groups.set(key, { cryptoId: a.cryptoId, timeframe: a.timeframe, alerts: [] });
+    groups.get(key).alerts.push(a);
+  });
+
+  for (const { cryptoId, timeframe, alerts: groupAlerts } of groups.values()) {
+    const candles = await fetchCandlesSafe(cryptoId, timeframe);
+    if (candles.length) {
+      const closes = candles.map((c) => c.close);
+      const price = closes[closes.length - 1];
+
+      groupAlerts.forEach((alert) => {
+        const seriesA = alert.maA.type === 'ema' ? Indicators.EMA(closes, alert.maA.period) : Indicators.SMA(closes, alert.maA.period);
+        const seriesB = alert.maB.type === 'ema' ? Indicators.EMA(closes, alert.maB.period) : Indicators.SMA(closes, alert.maB.period);
+        const [prevA, curA] = lastTwo(seriesA);
+        const [prevB, curB] = lastTwo(seriesB);
+        const didTrigger = AlertsEngine.checkCustomCrossover(alert, prevA, curA, prevB, curB, price);
+        if (didTrigger) handleAlertTriggered(alert, { price });
+      });
+    }
+    if (!isDemoActive()) await sleep(700);
+  }
 }
 
 function handleAlertTriggered(alert, ctx) {
@@ -635,13 +683,17 @@ function populateAlertForm() {
     `<optgroup label="${cat}">${types.map((t) => `<option value="${t.value}">${t.label}</option>`).join('')}</optgroup>`
   ).join('');
 
-  updateAlertValueVisibility();
+  updateAlertFormVisibility();
 }
 
-function updateAlertValueVisibility() {
+function updateAlertFormVisibility() {
   const type = document.getElementById('alertType').value;
   const meta = AlertsEngine.typeMeta(type);
   document.getElementById('alertValueWrap').classList.toggle('hidden', !(meta && meta.needsValue));
+  const isMA = !!(meta && meta.needsMAConfig);
+  document.getElementById('alertTimeframeWrap').classList.toggle('hidden', !isMA);
+  document.getElementById('alertMaAWrap').classList.toggle('hidden', !isMA);
+  document.getElementById('alertMaBWrap').classList.toggle('hidden', !isMA);
 }
 
 function renderAlerts() {
@@ -652,11 +704,10 @@ function renderAlerts() {
   tbody.innerHTML = alerts.map((a) => {
     const asset = CRYPTO_BY_ID[a.cryptoId];
     const meta = AlertsEngine.typeMeta(a.type);
-    const condition = meta ? meta.label + (meta.needsValue && a.value !== null ? ` ${a.value}` : '') : a.type;
     return `<tr>
       <td>${asset ? asset.name : a.cryptoId}</td>
       <td>${meta ? meta.category : '--'}</td>
-      <td>${condition}</td>
+      <td>${AlertsEngine.describeAlert(a)}</td>
       <td>${a.cooldown}</td>
       <td><span class="badge ${a.enabled ? 'badge-on' : 'badge-off'}" data-alert-toggle="${a.id}" style="cursor:pointer">${a.enabled ? 'Ativo' : 'Pausado'}</span></td>
       <td><button class="btn btn-danger" data-alert-delete="${a.id}">Excluir</button></td>
@@ -809,18 +860,33 @@ function wireEvents() {
   document.getElementById('cancelAlertBtn').addEventListener('click', () => {
     document.getElementById('alertFormPanel').classList.add('hidden');
   });
-  document.getElementById('alertType').addEventListener('change', updateAlertValueVisibility);
+  document.getElementById('alertType').addEventListener('change', updateAlertFormVisibility);
   document.getElementById('saveAlertBtn').addEventListener('click', () => {
-    const cryptoId = document.getElementById('alertAsset').value;
+    const assetSelect = document.getElementById('alertAsset');
+    const selectedAssets = Array.from(assetSelect.selectedOptions).map((o) => o.value);
+    if (!selectedAssets.length) { showToast('error', 'Selecione ao menos uma moeda.'); return; }
+
     const type = document.getElementById('alertType').value;
+    const meta = AlertsEngine.typeMeta(type);
     const value = document.getElementById('alertValue').value;
     const cooldown = document.getElementById('alertCooldown').value;
     const message = document.getElementById('alertMessage').value;
-    AlertsEngine.createAlert({ cryptoId, type, value, cooldown, message });
+    const maConfig = meta && meta.needsMAConfig ? {
+      timeframe: document.getElementById('alertTimeframe').value,
+      maAType: document.getElementById('alertMaAType').value,
+      maAPeriod: document.getElementById('alertMaAPeriod').value,
+      maBType: document.getElementById('alertMaBType').value,
+      maBPeriod: document.getElementById('alertMaBPeriod').value,
+    } : {};
+
+    selectedAssets.forEach((cryptoId) => {
+      AlertsEngine.createAlert({ cryptoId, type, value, cooldown, message, ...maConfig });
+    });
+
     document.getElementById('alertFormPanel').classList.add('hidden');
     document.getElementById('alertValue').value = '';
     document.getElementById('alertMessage').value = '';
-    showToast('success', 'Alerta criado com sucesso.');
+    showToast('success', `${selectedAssets.length} alerta(s) criado(s) com sucesso.`);
     renderAlerts();
   });
   document.getElementById('alertsTableBody').addEventListener('click', (e) => {

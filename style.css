@@ -364,6 +364,11 @@ button, input, select {
 .span-2 { grid-column: 1 / -1; }
 .form-actions { display: flex; gap: 10px; margin-top: 14px; }
 
+.form-grid select[multiple] { padding: 4px; }
+.field-hint { color: var(--text-dim); font-size: 11px; margin-top: 4px; }
+.ma-config-row { display: flex; gap: 6px; }
+.ma-config-row select { flex: 1; margin-top: 0; }
+
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .badge-on { background: rgba(67,160,71,.15); color: var(--success); }
 .badge-off { background: rgba(139,147,168,.15); color: var(--text-muted); }

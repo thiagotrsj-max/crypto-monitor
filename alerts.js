@@ -39,6 +39,11 @@ const AlertsEngine = (() => {
     { value: 'ma_ma_cross_below', label: 'Cruzamento da morte (EMA9 < SMA50)', category: 'Médias', needsValue: false },
     { value: 'price_above_sma200', label: 'Preço acima da SMA 200', category: 'Médias', needsValue: false },
     { value: 'price_below_sma200', label: 'Preço abaixo da SMA 200', category: 'Médias', needsValue: false },
+    // Cruzamento de médias configurável: o usuário escolhe timeframe + tipo/período de cada média
+    // (ex: EMA 7 cruzando a EMA 21). Ver `needsMAConfig` — a UI (app.js) mostra os campos extras
+    // (timeframe, Média A, Média B) só quando um desses dois tipos está selecionado.
+    { value: 'ma_cross_custom_above', label: 'Cruzamento de médias (configurável) — cruza para cima', category: 'Médias', needsValue: false, needsMAConfig: true },
+    { value: 'ma_cross_custom_below', label: 'Cruzamento de médias (configurável) — cruza para baixo', category: 'Médias', needsValue: false, needsMAConfig: true },
     // RSI
     { value: 'rsi_above', label: 'RSI acima de', category: 'RSI', needsValue: true },
     { value: 'rsi_below', label: 'RSI abaixo de', category: 'RSI', needsValue: true },
@@ -90,6 +95,10 @@ const AlertsEngine = (() => {
     return cryptoId ? alerts.filter((a) => a.cryptoId === cryptoId) : alerts.slice();
   }
 
+  function isCustomCrossType(type) {
+    return type === 'ma_cross_custom_above' || type === 'ma_cross_custom_below';
+  }
+
   function createAlert(data) {
     const alert = {
       id: 'al_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
@@ -102,6 +111,11 @@ const AlertsEngine = (() => {
       createdAt: Date.now(),
       lastTriggered: null,
     };
+    if (isCustomCrossType(data.type)) {
+      alert.timeframe = data.timeframe || '1d';
+      alert.maA = { type: data.maAType === 'sma' ? 'sma' : 'ema', period: Number(data.maAPeriod) || 7 };
+      alert.maB = { type: data.maBType === 'sma' ? 'sma' : 'ema', period: Number(data.maBPeriod) || 21 };
+    }
     alerts.push(alert);
     saveAlerts();
     return alert;
@@ -179,10 +193,15 @@ const AlertsEngine = (() => {
     return prev[keyA] >= prev[keyB] && curr[keyA] < curr[keyB];
   }
 
-  /** Avalia todos os alertas ativos de um ativo contra o contexto atual, disparando os que baterem. */
+  /**
+   * Avalia todos os alertas "padrão" (baseados no contexto diário) de um ativo, disparando os
+   * que baterem. Alertas de cruzamento de médias configurável (`ma_cross_custom_*`) NÃO passam
+   * por aqui — eles usam candles do timeframe escolhido pelo usuário, não o contexto diário, e
+   * são avaliados por `checkCustomCrossover` (chamada por app.js).
+   */
   function evaluate(cryptoId, currentContext) {
     const prevContext = lastSnapshot.get(cryptoId) || null;
-    const relevant = alerts.filter((a) => a.cryptoId === cryptoId && a.enabled);
+    const relevant = alerts.filter((a) => a.cryptoId === cryptoId && a.enabled && !isCustomCrossType(a.type));
     const triggered = [];
 
     for (const alert of relevant) {
@@ -199,20 +218,56 @@ const AlertsEngine = (() => {
     return triggered;
   }
 
-  function addHistoryEntry(alert, context) {
+  /** Texto legível da condição do alerta — usado na tabela de Alertas e no Histórico. */
+  function describeAlert(alert) {
     const meta = typeMeta(alert.type);
+    if (isCustomCrossType(alert.type)) {
+      const dir = alert.type === 'ma_cross_custom_above' ? 'cruza para cima de' : 'cruza para baixo de';
+      const a = `${alert.maA.type.toUpperCase()} ${alert.maA.period}`;
+      const b = `${alert.maB.type.toUpperCase()} ${alert.maB.period}`;
+      return `${a} ${dir} ${b} (${alert.timeframe.toUpperCase()})`;
+    }
+    if (meta && meta.needsValue && alert.value !== null) return `${meta.label} ${alert.value}`;
+    return meta ? meta.label : alert.type;
+  }
+
+  function addHistoryEntry(alert, context) {
     const now = new Date();
     history.unshift({
       id: 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       timestamp: now.getTime(),
       cryptoId: alert.cryptoId,
       type: alert.type,
-      typeLabel: meta ? meta.label : alert.type,
-      price: context.price,
-      message: alert.message || (meta ? meta.label : alert.type),
+      typeLabel: describeAlert(alert),
+      price: context.price ?? null,
+      message: alert.message || describeAlert(alert),
     });
     if (history.length > HISTORY_LIMIT) history.length = HISTORY_LIMIT;
     saveHistory();
+  }
+
+  /**
+   * Avalia um alerta de cruzamento de médias configurável. Diferente de `evaluate()`, aqui o
+   * "antes/depois" não vem de um snapshot entre ciclos de atualização — vem dos dois últimos
+   * candles já calculados da própria série (mais robusto: não depende de quando o alerta foi
+   * criado nem do timing do polling). `prevA/curA/prevB/curB` são os penúltimo/último valores
+   * de cada média, calculados por app.js (que tem acesso aos candles e à lib de indicadores).
+   */
+  function checkCustomCrossover(alert, prevA, curA, prevB, curB, price) {
+    if (!alert.enabled) return false;
+    if (isInCooldown(alert)) return false;
+    if ([prevA, curA, prevB, curB].some((v) => v === null || v === undefined)) return false;
+
+    let met = false;
+    if (alert.type === 'ma_cross_custom_above') met = prevA <= prevB && curA > curB;
+    else if (alert.type === 'ma_cross_custom_below') met = prevA >= prevB && curA < curB;
+    if (!met) return false;
+
+    alert.lastTriggered = Date.now();
+    saveAlerts();
+    addHistoryEntry(alert, { price });
+    if (onTriggerCallback) onTriggerCallback(alert, { price });
+    return true;
   }
 
   function getHistory({ cryptoId = null, date = null } = {}) {
@@ -269,6 +324,9 @@ const AlertsEngine = (() => {
     deleteAlert,
     toggleAlert,
     evaluate,
+    checkCustomCrossover,
+    isCustomCrossType,
+    describeAlert,
     onTrigger,
     getHistory,
     clearHistory,
