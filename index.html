@@ -34,6 +34,7 @@
     <nav id="sidebar" class="sidebar">
       <button class="nav-item active" data-view="dashboard"><span class="nav-icon">📈</span><span class="nav-label">Painel</span></button>
       <button class="nav-item" data-view="assets"><span class="nav-icon">💰</span><span class="nav-label">Ativos</span></button>
+      <button class="nav-item" data-view="memecoins"><span class="nav-icon">🐸</span><span class="nav-label">Memecoins</span></button>
       <button class="nav-item" data-view="favorites"><span class="nav-icon">⭐</span><span class="nav-label">Favoritos</span></button>
       <button class="nav-item" data-view="alerts"><span class="nav-icon">🔔</span><span class="nav-label">Alertas</span></button>
       <button class="nav-item" data-view="history"><span class="nav-icon">📋</span><span class="nav-label">Histórico</span></button>
@@ -143,6 +144,41 @@
             </thead>
             <tbody id="assetsTableBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- MEMECOINS -->
+      <section id="view-memecoins" class="view">
+        <div class="view-toolbar">
+          <h2>🐸 Memecoins</h2>
+          <div class="memecoins-toolbar-actions">
+            <input type="search" id="memecoinSearch" class="search-input" placeholder="🔎 Pesquisar memecoin...">
+            <button id="memecoinsRefreshBtn" class="btn btn-outline">🔄 Atualizar</button>
+          </div>
+        </div>
+        <p class="section-note">
+          Lista carregada sob demanda (só quando esta aba é aberta ou você clica em Atualizar) — não faz parte do
+          ciclo automático de atualização, para não sobrecarregar o limite de requisições da API gratuita.
+          Última atualização: <span id="memecoinsLastUpdate">--</span>
+        </p>
+        <div class="table-wrap">
+          <table class="data-table" id="memecoinsTable">
+            <thead>
+              <tr>
+                <th data-sort="name">Nome</th>
+                <th data-sort="symbol">Símbolo</th>
+                <th data-sort="price">Preço</th>
+                <th data-sort="change">Var 24h</th>
+                <th data-sort="high">Alta 24h</th>
+                <th data-sort="low">Baixa 24h</th>
+                <th data-sort="volume">Volume</th>
+                <th data-sort="mcap">Market Cap</th>
+              </tr>
+            </thead>
+            <tbody id="memecoinsTableBody"></tbody>
+          </table>
+          <p class="empty-state hidden" id="memecoinsEmpty">Nenhuma memecoin encontrada.</p>
+          <p class="empty-state hidden" id="memecoinsLoading">Carregando memecoins...</p>
         </div>
       </section>
 

@@ -22,6 +22,43 @@ const CRYPTO_LIST = [
 ];
 const CRYPTO_BY_ID = Object.fromEntries(CRYPTO_LIST.map((c) => [c.id, c]));
 
+// Lista de memecoins para a aba dedicada (🐸 Memecoins). Isolada de propósito da lista principal:
+// não entra no polling automático nem no sistema de alertas/favoritos — só é buscada (1 chamada
+// à API, todas de uma vez) quando o usuário abre a aba ou clica em Atualizar. Isso evita somar
+// mais chamadas ao ciclo de atualização automático, que já esbarra no rate-limit da CoinGecko
+// free tier com apenas os 10 ativos principais.
+const MEMECOIN_LIST = [
+  { id: 'shiba-inu', symbol: 'SHIB', name: 'Shiba Inu' },
+  { id: 'pepe', symbol: 'PEPE', name: 'Pepe' },
+  { id: 'floki', symbol: 'FLOKI', name: 'Floki' },
+  { id: 'bonk', symbol: 'BONK', name: 'Bonk' },
+  { id: 'dogwifcoin', symbol: 'WIF', name: 'dogwifhat' },
+  { id: 'baby-doge-coin', symbol: 'BABYDOGE', name: 'Baby Doge Coin' },
+  { id: 'mog-coin', symbol: 'MOG', name: 'Mog Coin' },
+  { id: 'based-brett', symbol: 'BRETT', name: 'Brett' },
+  { id: 'popcat', symbol: 'POPCAT', name: 'Popcat' },
+  { id: 'book-of-meme', symbol: 'BOME', name: 'Book of Meme' },
+  { id: 'cat-in-a-dogs-world', symbol: 'MEW', name: 'cat in a dogs world' },
+  { id: 'dogelon-mars', symbol: 'ELON', name: 'Dogelon Mars' },
+  { id: 'wojak', symbol: 'WOJAK', name: 'Wojak' },
+  { id: 'turbo', symbol: 'TURBO', name: 'Turbo' },
+  { id: 'jeo-boden', symbol: 'BODEN', name: 'Jeo Boden' },
+  { id: 'slerf', symbol: 'SLERF', name: 'Slerf' },
+  { id: 'myro', symbol: 'MYRO', name: 'Myro' },
+  { id: 'ponke', symbol: 'PONKE', name: 'Ponke' },
+  { id: 'degen-base', symbol: 'DEGEN', name: 'Degen' },
+  { id: 'samoyedcoin', symbol: 'SAMO', name: 'Samoyedcoin' },
+  { id: 'hoge-finance', symbol: 'HOGE', name: 'Hoge Finance' },
+  { id: 'akita-inu', symbol: 'AKITA', name: 'Akita Inu' },
+  { id: 'kishu-inu', symbol: 'KISHU', name: 'Kishu Inu' },
+  { id: 'catecoin', symbol: 'CATE', name: 'Catecoin' },
+  { id: 'shiba-predator', symbol: 'QOM', name: 'Shiba Predator' },
+  { id: 'landwolf-0x67', symbol: 'WOLF', name: 'Landwolf' },
+  { id: 'pitbull', symbol: 'PIT', name: 'Pitbull' },
+  { id: 'volt-inu-2', symbol: 'VOLT', name: 'Volt Inu' },
+];
+const MEMECOIN_BY_ID = Object.fromEntries(MEMECOIN_LIST.map((c) => [c.id, c]));
+
 const SETTINGS_KEY = 'crypto_monitor_settings';
 const FAVORITES_KEY = 'crypto_monitor_favorites';
 
@@ -52,6 +89,10 @@ const state = {
   demoAuto: false,
   currentView: 'dashboard',
   sortState: { key: 'name', dir: 1 },
+  memecoinsById: {},
+  memecoinsLoaded: false,
+  memecoinsLoading: false,
+  memecoinsSortState: { key: 'change', dir: -1 }, // por padrão, maiores altas primeiro
   pollTimer: null,
   chart: null,
   candleSeries: null,
@@ -89,6 +130,24 @@ function fmtPrice(value) {
     maximumFractionDigits: state.settings.decimals,
   })}`;
 }
+/**
+ * Preço com casas decimais adaptativas — usada na tabela de Memecoins, onde muitos tokens valem
+ * frações minúsculas de centavo. Com as "Casas decimais" padrão (2) da config geral, um preço
+ * como $0,00000734 apareceria como "$0,00" para todo mundo; aqui garantimos ~4 algarismos
+ * significativos mesmo para valores muito pequenos.
+ */
+function fmtMemePrice(value) {
+  if (value === null || value === undefined || isNaN(value)) return '--';
+  const symbol = CURRENCY_SYMBOL[state.settings.currency] || '';
+  const abs = Math.abs(value);
+  let decimals = state.settings.decimals;
+  if (abs > 0 && abs < 1) {
+    const magnitude = Math.floor(Math.log10(abs));
+    decimals = Math.max(decimals, Math.min(10, -magnitude + 3));
+  }
+  return `${symbol}${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
 function fmtPercent(value) {
   if (value === null || value === undefined || isNaN(value)) return '--';
   const sign = value > 0 ? '+' : '';
@@ -165,6 +224,9 @@ function showBrowserNotification(title, body) {
 
 const demoBase = {};
 CRYPTO_LIST.forEach((c, i) => { demoBase[c.id] = 100 * (i + 1) * 3.7 + 50; });
+// Memecoins costumam valer frações de centavo — semente bem menor para o modo demo não mostrar
+// preços absurdos (ex: "$1.234,56" para uma moeda que na vida real vale $0,000012).
+MEMECOIN_LIST.forEach((c, i) => { demoBase[c.id] = 0.000001 * (i + 1) * 137 + 0.0001; });
 
 function isDemoActive() { return state.demoManual || state.demoAuto; }
 
@@ -172,13 +234,16 @@ function generateDemoMarkets(ids) {
   return ids.map((id) => {
     const base = demoBase[id];
     const wiggle = (Math.random() - 0.5) * base * 0.02;
-    demoBase[id] = Math.max(0.01, base + wiggle);
+    // Piso proporcional ao próprio preço-base (não um valor fixo como "$0,01"): esse fixo fazia
+    // sentido pras 10 criptos principais, mas achatava TODAS as memecoins (que valem frações bem
+    // menores) para o mesmo valor no primeiro refresh.
+    demoBase[id] = Math.max(base * 0.5, base + wiggle);
     const price = demoBase[id];
     const change = (Math.random() - 0.5) * 10;
     return {
       id,
-      symbol: CRYPTO_BY_ID[id]?.symbol.toLowerCase() || id,
-      name: CRYPTO_BY_ID[id]?.name || id,
+      symbol: (CRYPTO_BY_ID[id] || MEMECOIN_BY_ID[id])?.symbol.toLowerCase() || id,
+      name: (CRYPTO_BY_ID[id] || MEMECOIN_BY_ID[id])?.name || id,
       current_price: price,
       price_change_percentage_24h: change,
       high_24h: price * 1.03,
@@ -434,6 +499,7 @@ function switchView(view) {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebarOverlay').classList.add('hidden');
   renderCurrentView();
+  if (view === 'memecoins' && !state.memecoinsLoaded && !state.memecoinsLoading) loadMemecoins();
 }
 
 /** Troca o ativo em destaque no Painel e busca o gráfico dele (chamado a partir de outras views). */
@@ -448,6 +514,7 @@ function renderCurrentView() {
   switch (state.currentView) {
     case 'dashboard': renderDashboard(); break;
     case 'assets': renderAssetsTable(); break;
+    case 'memecoins': renderMemecoins(); break;
     case 'favorites': renderFavorites(); break;
     case 'alerts': renderAlerts(); break;
     case 'history': renderHistory(); break;
@@ -628,6 +695,80 @@ function renderAssetsTable() {
       <td><button class="btn btn-outline" data-view-asset="${r.id}">Ver</button></td>
     </tr>`;
   }).join('') || `<tr><td colspan="9" class="empty-state">Nenhum ativo encontrado.</td></tr>`;
+}
+
+// ----------------------------------------------------------------------------------------------
+// View: Memecoins (carregada sob demanda — ver comentário em MEMECOIN_LIST)
+// ----------------------------------------------------------------------------------------------
+
+/** Busca os dados de mercado de todas as memecoins em UMA única chamada (a lista tem <= 250 ids). */
+async function loadMemecoins() {
+  if (state.memecoinsLoading) return;
+  state.memecoinsLoading = true;
+  renderMemecoins();
+
+  const ids = MEMECOIN_LIST.map((c) => c.id);
+  try {
+    const markets = isDemoActive() ? generateDemoMarkets(ids) : await CryptoAPI.getMarkets(ids, state.settings.currency);
+    state.memecoinsById = Object.fromEntries(markets.map((m) => [m.id, m]));
+    state.memecoinsLoaded = true;
+    document.getElementById('memecoinsLastUpdate').textContent = fmtTime();
+  } catch (err) {
+    console.error('Falha ao buscar memecoins:', err);
+    showToast('error', 'Falha ao carregar memecoins. Tente novamente em instantes.');
+  } finally {
+    state.memecoinsLoading = false;
+    renderMemecoins();
+  }
+}
+
+function renderMemecoins() {
+  const loadingEl = document.getElementById('memecoinsLoading');
+  const emptyEl = document.getElementById('memecoinsEmpty');
+  loadingEl.classList.toggle('hidden', !state.memecoinsLoading);
+
+  const search = (document.getElementById('memecoinSearch').value || '').toLowerCase();
+  let rows = MEMECOIN_LIST.filter((c) => c.name.toLowerCase().includes(search) || c.symbol.toLowerCase().includes(search));
+
+  rows = rows.map((c) => {
+    const m = state.memecoinsById[c.id];
+    return {
+      ...c,
+      price: m ? m.current_price : null,
+      change: m ? m.price_change_percentage_24h : null,
+      high: m ? m.high_24h : null,
+      low: m ? m.low_24h : null,
+      volume: m ? m.total_volume : null,
+      mcap: m ? m.market_cap : null,
+      found: !!m,
+    };
+  });
+
+  // Memecoins cujo id não retornou na API (ex: token renomeado/deslistado) ficam de fora da
+  // tabela em vez de aparecer com "--" em tudo — mais honesto do que fingir que temos o dado.
+  if (state.memecoinsLoaded) rows = rows.filter((r) => r.found);
+
+  const { key, dir } = state.memecoinsSortState;
+  rows.sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    av = av ?? -Infinity; bv = bv ?? -Infinity;
+    return (av - bv) * dir;
+  });
+
+  const tbody = document.getElementById('memecoinsTableBody');
+  tbody.innerHTML = rows.map((r) => `<tr>
+      <td>${r.name}</td>
+      <td>${r.symbol}</td>
+      <td>${fmtMemePrice(r.price)}</td>
+      <td class="${r.change > 0 ? 'asset-change up' : r.change < 0 ? 'asset-change down' : ''}">${fmtPercent(r.change)}</td>
+      <td>${fmtMemePrice(r.high)}</td>
+      <td>${fmtMemePrice(r.low)}</td>
+      <td>${fmtCompact(r.volume)}</td>
+      <td>${fmtCompact(r.mcap)}</td>
+    </tr>`).join('');
+
+  emptyEl.classList.toggle('hidden', !(state.memecoinsLoaded && !state.memecoinsLoading && rows.length === 0));
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -843,6 +984,18 @@ function wireEvents() {
     const viewBtn = e.target.closest('[data-view-asset]');
     if (favBtn) toggleFavorite(favBtn.dataset.favToggle);
     else if (viewBtn) showAsset(viewBtn.dataset.viewAsset);
+  });
+
+  // Memecoins
+  document.getElementById('memecoinSearch').addEventListener('input', renderMemecoins);
+  document.getElementById('memecoinsRefreshBtn').addEventListener('click', () => loadMemecoins());
+  document.getElementById('memecoinsTable').querySelector('thead').addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    state.memecoinsSortState.dir = state.memecoinsSortState.key === key ? -state.memecoinsSortState.dir : 1;
+    state.memecoinsSortState.key = key;
+    renderMemecoins();
   });
 
   // Favoritos

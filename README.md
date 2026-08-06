@@ -10,6 +10,7 @@ Sistema de monitoramento de criptomoedas que roda **inteiramente no navegador** 
 - Sistema de alertas com 28 tipos de condição (preço, médias, RSI, MACD, Bollinger, volume, tendência), cooldown configurável, notificações do navegador + som
   - Inclui alerta de **cruzamento de médias configurável**: escolha uma ou mais moedas, o timeframe (1M a 1W) e o tipo/período de cada média (SMA ou EMA, períodos 7/9/21/50/100) — ex: "EMA 7 cruza para cima da EMA 21 no 1H"
 - Views: Painel, Ativos (tabela ordenável e pesquisável), Favoritos, Alertas, Histórico (com exportação CSV) e Configurações
+- Aba dedicada de **Memecoins** (🐸) com ~30 tokens (SHIB, PEPE, FLOKI, BONK, WIF, e mais), preço/variação/volume/market cap, busca e ordenação — carregada sob demanda (só quando a aba é aberta ou você clica em Atualizar), fora do ciclo de polling automático, para não somar risco de rate-limit
 - Modo Demo com dados simulados (manual ou automático, caso a API fique indisponível)
 - Tema claro/escuro, responsivo para mobile/tablet/desktop
 - Persistência 100% local via `localStorage` — nenhum dado sai do seu navegador
