@@ -58,6 +58,10 @@ const MEMECOIN_LIST = [
   { id: 'volt-inu-2', symbol: 'VOLT', name: 'Volt Inu' },
 ];
 const MEMECOIN_BY_ID = Object.fromEntries(MEMECOIN_LIST.map((c) => [c.id, c]));
+// Lookup combinado (principais + memecoins) — usado em qualquer lugar que precise exibir nome/
+// símbolo de um ativo que pode ser de qualquer uma das duas listas (alertas, histórico), já que
+// alertas agora podem ser criados para memecoins também.
+const ALL_COINS_BY_ID = { ...CRYPTO_BY_ID, ...MEMECOIN_BY_ID };
 
 const SETTINGS_KEY = 'crypto_monitor_settings';
 const FAVORITES_KEY = 'crypto_monitor_favorites';
@@ -122,21 +126,13 @@ function saveFavorites() {
 // Formatação
 // ----------------------------------------------------------------------------------------------
 
-function fmtPrice(value) {
-  if (value === null || value === undefined || isNaN(value)) return '--';
-  const symbol = CURRENCY_SYMBOL[state.settings.currency] || '';
-  return `${symbol}${Number(value).toLocaleString('pt-BR', {
-    minimumFractionDigits: state.settings.decimals,
-    maximumFractionDigits: state.settings.decimals,
-  })}`;
-}
 /**
- * Preço com casas decimais adaptativas — usada na tabela de Memecoins, onde muitos tokens valem
- * frações minúsculas de centavo. Com as "Casas decimais" padrão (2) da config geral, um preço
- * como $0,00000734 apareceria como "$0,00" para todo mundo; aqui garantimos ~4 algarismos
- * significativos mesmo para valores muito pequenos.
+ * Preço com casas decimais adaptativas. Usa as "Casas decimais" da configuração como piso, mas
+ * aumenta automaticamente para valores menores que $1 — necessário para memecoins, que costumam
+ * valer frações minúsculas de centavo (ex: $0,00000734). Sem isso, qualquer preço abaixo de 1
+ * apareceria arredondado para "$0,00" com a config padrão (2 casas).
  */
-function fmtMemePrice(value) {
+function fmtPrice(value) {
   if (value === null || value === undefined || isNaN(value)) return '--';
   const symbol = CURRENCY_SYMBOL[state.settings.currency] || '';
   const abs = Math.abs(value);
@@ -145,7 +141,10 @@ function fmtMemePrice(value) {
     const magnitude = Math.floor(Math.log10(abs));
     decimals = Math.max(decimals, Math.min(10, -magnitude + 3));
   }
-  return `${symbol}${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+  return `${symbol}${Number(value).toLocaleString('pt-BR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
 }
 
 function fmtPercent(value) {
@@ -394,9 +393,18 @@ async function refreshData() {
 }
 
 async function doRefresh() {
-  let ids = Array.from(new Set([...CRYPTO_LIST.map((c) => c.id), ...state.favorites]));
+  // Alertas "padrão" (preço, RSI, MACD, Bollinger, volume, tendência — tudo que não é o
+  // cruzamento de médias configurável) dependem do contexto diário calculado aqui. Isso inclui
+  // alertas criados para memecoins: sem incluir o cryptoId deles no loop, um alerta como
+  // "PEPE preço acima de X" nunca seria avaliado. Alertas de cruzamento de médias (ma_cross_custom)
+  // NÃO precisam entrar aqui — eles rodam na fila própria (evaluateCustomMACrossAlerts).
+  const standardAlertAssetIds = AlertsEngine.listAlerts()
+    .filter((a) => a.enabled && !AlertsEngine.isCustomCrossType(a.type))
+    .map((a) => a.cryptoId);
+
+  let ids = Array.from(new Set([...CRYPTO_LIST.map((c) => c.id), ...state.favorites, ...standardAlertAssetIds]));
   // O ativo atualmente visível no Painel vai primeiro, para que preço/stats apareçam de imediato
-  // em vez de esperar a fila inteira (throttlada) de indicadores dos outros 9 ativos.
+  // em vez de esperar a fila inteira (throttlada) de indicadores dos outros ativos.
   ids = [state.currentAssetId, ...ids.filter((id) => id !== state.currentAssetId)];
 
   const markets = await fetchMarketsSafe(ids);
@@ -473,7 +481,7 @@ async function evaluateCustomMACrossAlerts() {
 }
 
 function handleAlertTriggered(alert, ctx) {
-  const asset = CRYPTO_BY_ID[alert.cryptoId];
+  const asset = ALL_COINS_BY_ID[alert.cryptoId];
   const meta = AlertsEngine.typeMeta(alert.type);
   const title = `🔔 ${asset ? asset.name : alert.cryptoId}`;
   const body = alert.message || (meta ? meta.label : alert.type);
@@ -760,10 +768,10 @@ function renderMemecoins() {
   tbody.innerHTML = rows.map((r) => `<tr>
       <td>${r.name}</td>
       <td>${r.symbol}</td>
-      <td>${fmtMemePrice(r.price)}</td>
+      <td>${fmtPrice(r.price)}</td>
       <td class="${r.change > 0 ? 'asset-change up' : r.change < 0 ? 'asset-change down' : ''}">${fmtPercent(r.change)}</td>
-      <td>${fmtMemePrice(r.high)}</td>
-      <td>${fmtMemePrice(r.low)}</td>
+      <td>${fmtPrice(r.high)}</td>
+      <td>${fmtPrice(r.low)}</td>
       <td>${fmtCompact(r.volume)}</td>
       <td>${fmtCompact(r.mcap)}</td>
     </tr>`).join('');
@@ -815,7 +823,9 @@ function toggleFavorite(id) {
 
 function populateAlertForm() {
   const assetSelect = document.getElementById('alertAsset');
-  assetSelect.innerHTML = CRYPTO_LIST.map((c) => `<option value="${c.id}">${c.name} (${c.symbol})</option>`).join('');
+  const mainOptions = CRYPTO_LIST.map((c) => `<option value="${c.id}">${c.name} (${c.symbol})</option>`).join('');
+  const memeOptions = MEMECOIN_LIST.map((c) => `<option value="${c.id}">${c.name} (${c.symbol})</option>`).join('');
+  assetSelect.innerHTML = `<optgroup label="Principais">${mainOptions}</optgroup><optgroup label="Memecoins">${memeOptions}</optgroup>`;
 
   const typeSelect = document.getElementById('alertType');
   const byCategory = {};
@@ -843,7 +853,7 @@ function renderAlerts() {
   document.getElementById('alertsEmpty').classList.toggle('hidden', alerts.length > 0);
 
   tbody.innerHTML = alerts.map((a) => {
-    const asset = CRYPTO_BY_ID[a.cryptoId];
+    const asset = ALL_COINS_BY_ID[a.cryptoId];
     const meta = AlertsEngine.typeMeta(a.type);
     return `<tr>
       <td>${asset ? asset.name : a.cryptoId}</td>
@@ -862,7 +872,9 @@ function renderAlerts() {
 
 function populateHistoryFilter() {
   const select = document.getElementById('historyAssetFilter');
-  select.innerHTML = `<option value="">Todos os ativos</option>` + CRYPTO_LIST.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  const mainOptions = CRYPTO_LIST.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  const memeOptions = MEMECOIN_LIST.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  select.innerHTML = `<option value="">Todos os ativos</option><optgroup label="Principais">${mainOptions}</optgroup><optgroup label="Memecoins">${memeOptions}</optgroup>`;
 }
 
 function renderHistory() {
@@ -873,7 +885,7 @@ function renderHistory() {
   document.getElementById('historyEmpty').classList.toggle('hidden', rows.length > 0);
   document.getElementById('historyTableBody').innerHTML = rows.map((h) => {
     const { date, time } = fmtDateTime(h.timestamp);
-    const asset = CRYPTO_BY_ID[h.cryptoId];
+    const asset = ALL_COINS_BY_ID[h.cryptoId];
     return `<tr>
       <td>${date}</td><td>${time}</td><td>${asset ? asset.name : h.cryptoId}</td>
       <td>${h.type}</td><td>${h.typeLabel}</td><td>${h.price !== null ? fmtPrice(h.price) : '--'}</td><td>${h.message}</td>
