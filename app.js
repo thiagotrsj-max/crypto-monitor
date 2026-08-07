@@ -106,6 +106,8 @@ const state = {
   memecoinsLoading: false,
   memecoinsSortState: { key: 'change', dir: -1 }, // por padrão, maiores altas primeiro
   analysisAssetId: 'bitcoin',
+  analysisTimeframe: '1d',
+  analysisContext: null,
   analysisLoading: false,
   fearGreed: null,
   fearGreedLoading: false,
@@ -521,7 +523,7 @@ function switchView(view) {
   renderCurrentView();
   if (view === 'memecoins' && !state.memecoinsLoaded && !state.memecoinsLoading) loadMemecoins();
   if (view === 'analysis') {
-    loadAnalysisAsset(state.analysisAssetId);
+    loadAnalysisAsset(state.analysisAssetId, state.analysisTimeframe);
     loadFearGreed(); // cacheado por 10min na api.js — repetir a chamada aqui é barato
   }
 }
@@ -811,15 +813,22 @@ function populateAnalysisAssetSelect() {
   select.value = state.analysisAssetId;
 }
 
-/** Busca preço + série diária de UM ativo (qualquer um, principal ou memecoin) para a Análise. */
-async function loadAnalysisAsset(assetId) {
+/**
+ * Busca preço + candles de UM ativo (qualquer um, principal ou memecoin) no timeframe escolhido,
+ * para a Análise. Guarda o resultado em `state.analysisContext` (e NÃO em `state.contextById`,
+ * que é sempre baseado na série diária e usado por Ativos/Alertas/Dashboard) — assim trocar o
+ * timeframe aqui não bagunça o RSI/tendência "oficial" (diário) mostrado em outras views.
+ */
+async function loadAnalysisAsset(assetId, timeframe) {
   state.analysisLoading = true;
   renderAnalysis();
 
   const markets = await fetchMarketsSafe([assetId]);
   if (markets[0]) state.marketsById[assetId] = markets[0];
-  const series = await fetchDailySeriesSafe(assetId);
-  state.contextById[assetId] = computeContext(state.marketsById[assetId], series);
+
+  const candles = await fetchCandlesSafe(assetId, timeframe);
+  const series = { closes: candles.map((c) => c.close), volumes: candles.map((c) => c.volume) };
+  state.analysisContext = computeContext(state.marketsById[assetId], series);
 
   state.analysisLoading = false;
   renderAnalysis();
@@ -879,10 +888,13 @@ function computeSignal(ctx) {
     else if (price < ctx.ema21) { score -= 1; reasons.push('Preço abaixo da EMA21'); }
   }
 
-  if (ctx.volume !== null && ctx.volumeAvg) {
+  if (ctx.volume !== null && ctx.volumeAvg && ctx.ema9 !== null) {
+    // Usa a direção do preço em relação à EMA9 do PRÓPRIO timeframe selecionado (não a variação
+    // de 24h, que é sempre a mesma independente do timeframe escolhido aqui — evita um "confirma
+    // a baixa" aparecer junto de um sinal geral de alta só porque as 24h fecharam no vermelho).
     const aboveAvg = ctx.volume > ctx.volumeAvg;
-    if (aboveAvg && ctx.change24h > 0) { score += 1; reasons.push('Volume acima da média confirmando a alta'); }
-    else if (aboveAvg && ctx.change24h < 0) { score -= 1; reasons.push('Volume acima da média confirmando a baixa'); }
+    if (aboveAvg && ctx.price > ctx.ema9) { score += 1; reasons.push('Volume acima da média confirmando a alta'); }
+    else if (aboveAvg && ctx.price < ctx.ema9) { score -= 1; reasons.push('Volume acima da média confirmando a baixa'); }
   }
 
   if (state.fearGreed) {
@@ -923,9 +935,9 @@ function renderAnalysis() {
     document.getElementById('fngLabel').textContent = state.fearGreedLoading ? 'Carregando...' : '--';
   }
 
-  const id = state.analysisAssetId;
-  const ctx = state.contextById[id];
+  const ctx = state.analysisContext;
   const signalBadge = document.getElementById('signalBadge');
+  document.getElementById('signalTimeframeLabel').textContent = state.analysisTimeframe.toUpperCase();
 
   if (!ctx) {
     signalBadge.textContent = state.analysisLoading ? '🔍 Carregando dados...' : '--';
@@ -1200,7 +1212,15 @@ function wireEvents() {
   // Análise Técnica
   document.getElementById('analysisAssetSelect').addEventListener('change', (e) => {
     state.analysisAssetId = e.target.value;
-    loadAnalysisAsset(state.analysisAssetId);
+    loadAnalysisAsset(state.analysisAssetId, state.analysisTimeframe);
+  });
+  document.getElementById('analysisTimeframePicker').addEventListener('click', (e) => {
+    const btn = e.target.closest('.tf-btn');
+    if (!btn) return;
+    document.querySelectorAll('#analysisTimeframePicker .tf-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.analysisTimeframe = btn.dataset.tf;
+    loadAnalysisAsset(state.analysisAssetId, state.analysisTimeframe);
   });
 
   // Favoritos

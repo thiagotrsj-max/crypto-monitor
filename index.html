@@ -294,11 +294,23 @@
       <section id="view-analysis" class="view">
         <div class="view-toolbar">
           <h2>🎯 Análise Técnica</h2>
-          <select id="analysisAssetSelect"></select>
+          <div class="analysis-toolbar-controls">
+            <select id="analysisAssetSelect"></select>
+            <div class="timeframe-picker" id="analysisTimeframePicker">
+              <button data-tf="1m" class="tf-btn">1M</button>
+              <button data-tf="5m" class="tf-btn">5M</button>
+              <button data-tf="15m" class="tf-btn">15M</button>
+              <button data-tf="1h" class="tf-btn">1H</button>
+              <button data-tf="4h" class="tf-btn">4H</button>
+              <button data-tf="1d" class="tf-btn active">1D</button>
+              <button data-tf="1w" class="tf-btn">1W</button>
+            </div>
+          </div>
         </div>
         <p class="section-note">
           Combina RSI, MACD, Médias Móveis, Volume e o Fear &amp; Greed Index numa leitura técnica única, com uma
-          estimativa de região de preço para entrada/saída. <strong>É uma leitura objetiva de indicadores, não
+          estimativa de região de preço para entrada/saída — recalculada para o timeframe escolhido acima (o
+          gráfico em si não aparece aqui, só a leitura). <strong>É uma leitura objetiva de indicadores, não
           uma recomendação de investimento</strong> — use como mais uma referência na sua própria análise.
         </p>
 
@@ -340,7 +352,7 @@
           </div>
 
           <div class="signal-panel">
-            <div class="signal-title">Sinal Técnico Combinado</div>
+            <div class="signal-title">Sinal Técnico Combinado <span id="signalTimeframeLabel" class="signal-tf-label"></span></div>
             <div class="signal-badge" id="signalBadge">🔍 Analisando...</div>
             <div class="signal-score-bar"><div class="signal-score-fill" id="signalScoreFill"></div></div>
             <p class="signal-explain" id="signalExplain"></p>
