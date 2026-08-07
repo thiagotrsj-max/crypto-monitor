@@ -322,7 +322,78 @@ button, input, select {
 .search-input { min-width: 220px; }
 
 .memecoins-toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.section-note { color: var(--text-dim); font-size: 12px; margin: -6px 0 12px; }
+.section-note { color: var(--text-dim); font-size: 12px; margin: -6px 0 12px; max-width: 900px; line-height: 1.5; }
+
+/* ---------- Análise Técnica ---------- */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.fng-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.fng-title { font-size: 13px; font-weight: 700; }
+.fng-sub { display: block; font-size: 11px; font-weight: 400; color: var(--text-dim); margin-top: 2px; }
+.fng-gauge { margin-top: 14px; text-align: center; }
+.fng-value { font-size: 40px; font-weight: 800; line-height: 1; }
+.fng-bar-track {
+  height: 10px;
+  border-radius: 999px;
+  margin: 10px 0 6px;
+  background: linear-gradient(90deg, #e53935 0%, #fb8c00 25%, #fdd835 50%, #7cb342 75%, #43a047 100%);
+  position: relative;
+}
+.fng-bar-fill {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 18px;
+  background: var(--text);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  transition: left .3s ease;
+}
+.fng-label { font-size: 14px; font-weight: 700; }
+.fng-updated { margin-top: 10px; font-size: 11px; color: var(--text-dim); text-align: center; }
+
+.analysis-indicator-cards { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+
+.signal-panel {
+  grid-column: 1 / -1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.signal-title { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.signal-badge { font-size: 22px; font-weight: 800; margin-top: 6px; }
+.signal-score-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  margin: 12px 0 8px;
+  overflow: hidden;
+}
+.signal-score-fill { height: 100%; transition: width .3s ease, background .3s ease; }
+.signal-explain { color: var(--text-muted); font-size: 13px; line-height: 1.6; margin: 6px 0 16px; }
+
+.zones-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.zone-box { border-radius: 8px; padding: 12px 14px; border: 1px solid var(--border); }
+.zone-buy { background: rgba(67, 160, 71, .08); border-color: rgba(67, 160, 71, .3); }
+.zone-sell { background: rgba(229, 57, 53, .08); border-color: rgba(229, 57, 53, .3); }
+.zone-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.zone-range { font-size: 15px; font-weight: 700; }
+
+@media (max-width: 1024px) {
+  .analysis-grid { grid-template-columns: 1fr; }
+  .zones-grid { grid-template-columns: 1fr; }
+}
 
 /* ---------- Favorites ---------- */
 .favorites-grid {

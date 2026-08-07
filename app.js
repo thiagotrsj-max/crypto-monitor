@@ -81,6 +81,14 @@ const DEFAULT_SETTINGS = {
 
 const CURRENCY_SYMBOL = { usd: '$', brl: 'R$', eur: '€' };
 
+const FNG_LABELS_PT = {
+  'Extreme Fear': 'Medo Extremo',
+  'Fear': 'Medo',
+  'Neutral': 'Neutro',
+  'Greed': 'Ganância',
+  'Extreme Greed': 'Ganância Extrema',
+};
+
 const state = {
   settings: loadSettings(),
   favorites: loadFavorites(),
@@ -97,6 +105,10 @@ const state = {
   memecoinsLoaded: false,
   memecoinsLoading: false,
   memecoinsSortState: { key: 'change', dir: -1 }, // por padrão, maiores altas primeiro
+  analysisAssetId: 'bitcoin',
+  analysisLoading: false,
+  fearGreed: null,
+  fearGreedLoading: false,
   pollTimer: null,
   chart: null,
   candleSeries: null,
@@ -508,6 +520,10 @@ function switchView(view) {
   document.getElementById('sidebarOverlay').classList.add('hidden');
   renderCurrentView();
   if (view === 'memecoins' && !state.memecoinsLoaded && !state.memecoinsLoading) loadMemecoins();
+  if (view === 'analysis') {
+    loadAnalysisAsset(state.analysisAssetId);
+    loadFearGreed(); // cacheado por 10min na api.js — repetir a chamada aqui é barato
+  }
 }
 
 /** Troca o ativo em destaque no Painel e busca o gráfico dele (chamado a partir de outras views). */
@@ -525,6 +541,7 @@ function renderCurrentView() {
     case 'memecoins': renderMemecoins(); break;
     case 'favorites': renderFavorites(); break;
     case 'alerts': renderAlerts(); break;
+    case 'analysis': renderAnalysis(); break;
     case 'history': renderHistory(); break;
     case 'settings': break; // estático, populado no init
   }
@@ -780,6 +797,176 @@ function renderMemecoins() {
 }
 
 // ----------------------------------------------------------------------------------------------
+// View: Análise Técnica — combina RSI, MACD, Médias Móveis, Volume e Fear & Greed Index numa
+// leitura única, com uma estimativa de região de preço para entrada/saída. Puramente informativo:
+// aplica as mesmas fórmulas de qualquer analisador técnico a quem o usuário pedir, não é uma
+// recomendação personalizada.
+// ----------------------------------------------------------------------------------------------
+
+function populateAnalysisAssetSelect() {
+  const select = document.getElementById('analysisAssetSelect');
+  const mainOptions = CRYPTO_LIST.map((c) => `<option value="${c.id}">${c.name} (${c.symbol})</option>`).join('');
+  const memeOptions = MEMECOIN_LIST.map((c) => `<option value="${c.id}">${c.name} (${c.symbol})</option>`).join('');
+  select.innerHTML = `<optgroup label="Principais">${mainOptions}</optgroup><optgroup label="Memecoins">${memeOptions}</optgroup>`;
+  select.value = state.analysisAssetId;
+}
+
+/** Busca preço + série diária de UM ativo (qualquer um, principal ou memecoin) para a Análise. */
+async function loadAnalysisAsset(assetId) {
+  state.analysisLoading = true;
+  renderAnalysis();
+
+  const markets = await fetchMarketsSafe([assetId]);
+  if (markets[0]) state.marketsById[assetId] = markets[0];
+  const series = await fetchDailySeriesSafe(assetId);
+  state.contextById[assetId] = computeContext(state.marketsById[assetId], series);
+
+  state.analysisLoading = false;
+  renderAnalysis();
+}
+
+function generateDemoFearGreed() {
+  const value = Math.floor(20 + Math.random() * 60);
+  const classification =
+    value <= 25 ? 'Extreme Fear' : value <= 45 ? 'Fear' : value <= 55 ? 'Neutral' : value <= 75 ? 'Greed' : 'Extreme Greed';
+  return { value, classification, timestamp: Date.now(), demo: true };
+}
+
+async function loadFearGreed() {
+  state.fearGreedLoading = true;
+  renderAnalysis();
+  try {
+    state.fearGreed = isDemoActive() ? generateDemoFearGreed() : await CryptoAPI.getFearGreedIndex();
+  } catch (err) {
+    console.error('Falha ao buscar Fear & Greed Index:', err);
+    if (!state.fearGreed) state.fearGreed = generateDemoFearGreed();
+  } finally {
+    state.fearGreedLoading = false;
+    renderAnalysis();
+  }
+}
+
+/**
+ * Combina os 5 indicadores num score de -9 a +9 (positivo = viés de alta/possível compra,
+ * negativo = viés de baixa/possível venda), e estima uma região de suporte (zona de compra) e
+ * resistência (zona de venda) a partir das médias móveis e Bandas de Bollinger mais próximas do
+ * preço atual.
+ */
+function computeSignal(ctx) {
+  if (!ctx || ctx.price === null) return null;
+  const price = ctx.price;
+  let score = 0;
+  const reasons = [];
+
+  if (ctx.rsi !== null) {
+    if (ctx.rsi <= 30) { score += 2; reasons.push('RSI em sobrevenda (possível fundo técnico)'); }
+    else if (ctx.rsi <= 45) { score += 1; reasons.push('RSI abaixo do centro (viés de alta)'); }
+    else if (ctx.rsi >= 70) { score -= 2; reasons.push('RSI em sobrecompra (possível topo técnico)'); }
+    else if (ctx.rsi >= 55) { score -= 1; reasons.push('RSI acima do centro (viés de baixa)'); }
+  }
+
+  if (ctx.macdLine !== null && ctx.macdSignal !== null) {
+    if (ctx.macdLine > ctx.macdSignal && ctx.macdHist > 0) { score += 2; reasons.push('MACD acima do sinal com histograma positivo (momentum de alta)'); }
+    else if (ctx.macdLine > ctx.macdSignal) { score += 1; reasons.push('MACD acima do sinal'); }
+    else if (ctx.macdLine < ctx.macdSignal && ctx.macdHist < 0) { score -= 2; reasons.push('MACD abaixo do sinal com histograma negativo (momentum de baixa)'); }
+    else if (ctx.macdLine < ctx.macdSignal) { score -= 1; reasons.push('MACD abaixo do sinal'); }
+  }
+
+  if (ctx.ema9 !== null && ctx.ema21 !== null && ctx.sma50 !== null) {
+    if (price > ctx.ema9 && ctx.ema9 > ctx.ema21 && ctx.ema21 > ctx.sma50) { score += 2; reasons.push('Alinhamento de alta: preço > EMA9 > EMA21 > SMA50'); }
+    else if (price > ctx.ema21) { score += 1; reasons.push('Preço acima da EMA21'); }
+    else if (price < ctx.ema9 && ctx.ema9 < ctx.ema21 && ctx.ema21 < ctx.sma50) { score -= 2; reasons.push('Alinhamento de baixa: preço < EMA9 < EMA21 < SMA50'); }
+    else if (price < ctx.ema21) { score -= 1; reasons.push('Preço abaixo da EMA21'); }
+  }
+
+  if (ctx.volume !== null && ctx.volumeAvg) {
+    const aboveAvg = ctx.volume > ctx.volumeAvg;
+    if (aboveAvg && ctx.change24h > 0) { score += 1; reasons.push('Volume acima da média confirmando a alta'); }
+    else if (aboveAvg && ctx.change24h < 0) { score -= 1; reasons.push('Volume acima da média confirmando a baixa'); }
+  }
+
+  if (state.fearGreed) {
+    const fg = state.fearGreed.value;
+    if (fg <= 25) { score += 2; reasons.push('Fear & Greed em Medo Extremo (historicamente zona de interesse contrário)'); }
+    else if (fg <= 45) { score += 1; reasons.push('Fear & Greed em Medo'); }
+    else if (fg >= 75) { score -= 2; reasons.push('Fear & Greed em Ganância Extrema (historicamente zona de cautela)'); }
+    else if (fg >= 55) { score -= 1; reasons.push('Fear & Greed em Ganância'); }
+  }
+
+  const maxScore = 9;
+  let label, emoji, tone;
+  if (score >= 5) { label = 'Zona técnica de possível compra (forte)'; emoji = '🟢'; tone = 'success'; }
+  else if (score >= 2) { label = 'Zona técnica de possível compra'; emoji = '🟢'; tone = 'success'; }
+  else if (score > -2) { label = 'Neutro — aguardar confirmação'; emoji = '🟡'; tone = 'warning'; }
+  else if (score > -5) { label = 'Zona técnica de cautela / possível venda'; emoji = '🔴'; tone = 'danger'; }
+  else { label = 'Zona técnica de possível venda (forte)'; emoji = '🔴'; tone = 'danger'; }
+
+  // Região de suporte (zona de compra) e resistência (zona de venda): pega as médias/bandas mais
+  // próximas do preço atual, abaixo e acima dele.
+  const levels = [ctx.ema9, ctx.ema21, ctx.sma50, ctx.sma200, ctx.bbLower, ctx.bbUpper].filter((v) => v !== null && v !== undefined);
+  const below = levels.filter((v) => v < price).sort((a, b) => b - a);
+  const above = levels.filter((v) => v > price).sort((a, b) => a - b);
+  const buyZone = below.length ? { low: below[1] ?? below[0] * 0.98, high: below[0] } : null;
+  const sellZone = above.length ? { low: above[0], high: above[1] ?? above[0] * 1.02 } : null;
+
+  return { score, maxScore, label, emoji, tone, reasons, buyZone, sellZone };
+}
+
+function renderAnalysis() {
+  const fg = state.fearGreed;
+  if (fg) {
+    document.getElementById('fngValue').textContent = fg.value;
+    document.getElementById('fngLabel').textContent = (FNG_LABELS_PT[fg.classification] || fg.classification) + (fg.demo ? ' (demo)' : '');
+    document.getElementById('fngBarFill').style.left = `${fg.value}%`;
+    document.getElementById('fngUpdated').textContent = `Atualizado: ${new Date(fg.timestamp).toLocaleString('pt-BR')}`;
+  } else {
+    document.getElementById('fngLabel').textContent = state.fearGreedLoading ? 'Carregando...' : '--';
+  }
+
+  const id = state.analysisAssetId;
+  const ctx = state.contextById[id];
+  const signalBadge = document.getElementById('signalBadge');
+
+  if (!ctx) {
+    signalBadge.textContent = state.analysisLoading ? '🔍 Carregando dados...' : '--';
+    signalBadge.style.color = '';
+    return;
+  }
+
+  document.getElementById('anRsiValue').textContent = ctx.rsi !== null ? ctx.rsi.toFixed(1) : '--';
+  document.getElementById('anRsiZone').textContent = ctx.rsi === null ? '--' : ctx.rsi >= 70 ? 'Sobrecompra' : ctx.rsi <= 30 ? 'Sobrevenda' : 'Neutro';
+
+  document.getElementById('anMacdValue').textContent = ctx.macdLine !== null ? ctx.macdLine.toFixed(6) : '--';
+  document.getElementById('anMacdDesc').textContent =
+    ctx.macdLine !== null && ctx.macdSignal !== null ? (ctx.macdLine > ctx.macdSignal ? 'Acima do sinal (bullish)' : 'Abaixo do sinal (bearish)') : '--';
+
+  document.getElementById('anMaValue').textContent = ctx.ema21 !== null ? fmtPrice(ctx.ema21) : '--';
+  document.getElementById('anMaDesc').textContent =
+    ctx.price !== null && ctx.ema21 !== null ? `Preço ${ctx.price > ctx.ema21 ? 'acima' : 'abaixo'} da EMA21` : '--';
+
+  document.getElementById('anVolValue').textContent = ctx.volume !== null ? fmtCompact(ctx.volume) : '--';
+  document.getElementById('anVolDesc').textContent =
+    ctx.volume !== null && ctx.volumeAvg ? (ctx.volume > ctx.volumeAvg ? '⬆ Acima da média' : '⬇ Abaixo da média') : '--';
+
+  const signal = computeSignal(ctx);
+  if (!signal) return;
+
+  const toneVar = { success: 'var(--success)', warning: 'var(--warning)', danger: 'var(--danger)' }[signal.tone];
+  signalBadge.textContent = `${signal.emoji} ${signal.label}`;
+  signalBadge.style.color = toneVar;
+
+  const pct = ((signal.score + signal.maxScore) / (signal.maxScore * 2)) * 100;
+  const fill = document.getElementById('signalScoreFill');
+  fill.style.width = `${pct}%`;
+  fill.style.background = toneVar;
+
+  document.getElementById('signalExplain').textContent =
+    signal.reasons.length ? signal.reasons.join(' • ') : 'Dados insuficientes para uma leitura completa ainda.';
+  document.getElementById('buyZoneRange').textContent = signal.buyZone ? `${fmtPrice(signal.buyZone.low)} — ${fmtPrice(signal.buyZone.high)}` : '--';
+  document.getElementById('sellZoneRange').textContent = signal.sellZone ? `${fmtPrice(signal.sellZone.low)} — ${fmtPrice(signal.sellZone.high)}` : '--';
+}
+
+// ----------------------------------------------------------------------------------------------
 // View: Favoritos
 // ----------------------------------------------------------------------------------------------
 
@@ -1010,6 +1197,12 @@ function wireEvents() {
     renderMemecoins();
   });
 
+  // Análise Técnica
+  document.getElementById('analysisAssetSelect').addEventListener('change', (e) => {
+    state.analysisAssetId = e.target.value;
+    loadAnalysisAsset(state.analysisAssetId);
+  });
+
   // Favoritos
   document.getElementById('favoritesGrid').addEventListener('click', (e) => {
     const removeBtn = e.target.closest('[data-fav-toggle]');
@@ -1160,6 +1353,7 @@ async function init() {
 
   populateAssetSelect();
   populateAlertForm();
+  populateAnalysisAssetSelect();
   populateHistoryFilter();
   populateSettingsForm();
   initChart();

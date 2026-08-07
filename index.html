@@ -37,6 +37,7 @@
       <button class="nav-item" data-view="memecoins"><span class="nav-icon">🐸</span><span class="nav-label">Memecoins</span></button>
       <button class="nav-item" data-view="favorites"><span class="nav-icon">⭐</span><span class="nav-label">Favoritos</span></button>
       <button class="nav-item" data-view="alerts"><span class="nav-icon">🔔</span><span class="nav-label">Alertas</span></button>
+      <button class="nav-item" data-view="analysis"><span class="nav-icon">🎯</span><span class="nav-label">Análise</span></button>
       <button class="nav-item" data-view="history"><span class="nav-icon">📋</span><span class="nav-label">Histórico</span></button>
       <button class="nav-item" data-view="settings"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></button>
     </nav>
@@ -286,6 +287,75 @@
             <tbody id="alertsTableBody"></tbody>
           </table>
           <p class="empty-state hidden" id="alertsEmpty">Nenhum alerta configurado ainda.</p>
+        </div>
+      </section>
+
+      <!-- ANÁLISE TÉCNICA -->
+      <section id="view-analysis" class="view">
+        <div class="view-toolbar">
+          <h2>🎯 Análise Técnica</h2>
+          <select id="analysisAssetSelect"></select>
+        </div>
+        <p class="section-note">
+          Combina RSI, MACD, Médias Móveis, Volume e o Fear &amp; Greed Index numa leitura técnica única, com uma
+          estimativa de região de preço para entrada/saída. <strong>É uma leitura objetiva de indicadores, não
+          uma recomendação de investimento</strong> — use como mais uma referência na sua própria análise.
+        </p>
+
+        <div class="analysis-grid">
+          <div class="fng-card">
+            <div class="fng-title">
+              Fear &amp; Greed Index
+              <span class="fng-sub">(sentimento geral do mercado cripto — não é específico do ativo selecionado)</span>
+            </div>
+            <div class="fng-gauge">
+              <div class="fng-value" id="fngValue">--</div>
+              <div class="fng-bar-track"><div class="fng-bar-fill" id="fngBarFill"></div></div>
+              <div class="fng-label" id="fngLabel">Carregando...</div>
+            </div>
+            <div class="fng-updated" id="fngUpdated"></div>
+          </div>
+
+          <div class="indicator-cards analysis-indicator-cards">
+            <div class="ind-card">
+              <div class="ind-card-title">RSI (14)</div>
+              <div class="ind-card-value" id="anRsiValue">--</div>
+              <div class="ind-card-sub" id="anRsiZone">--</div>
+            </div>
+            <div class="ind-card">
+              <div class="ind-card-title">MACD</div>
+              <div class="ind-card-value" id="anMacdValue">--</div>
+              <div class="ind-card-sub" id="anMacdDesc">--</div>
+            </div>
+            <div class="ind-card">
+              <div class="ind-card-title">Médias Móveis</div>
+              <div class="ind-card-value" id="anMaValue">--</div>
+              <div class="ind-card-sub" id="anMaDesc">--</div>
+            </div>
+            <div class="ind-card">
+              <div class="ind-card-title">Volume</div>
+              <div class="ind-card-value" id="anVolValue">--</div>
+              <div class="ind-card-sub" id="anVolDesc">--</div>
+            </div>
+          </div>
+
+          <div class="signal-panel">
+            <div class="signal-title">Sinal Técnico Combinado</div>
+            <div class="signal-badge" id="signalBadge">🔍 Analisando...</div>
+            <div class="signal-score-bar"><div class="signal-score-fill" id="signalScoreFill"></div></div>
+            <p class="signal-explain" id="signalExplain"></p>
+
+            <div class="zones-grid">
+              <div class="zone-box zone-buy">
+                <div class="zone-title">📥 Região técnica de possível entrada (compra)</div>
+                <div class="zone-range" id="buyZoneRange">--</div>
+              </div>
+              <div class="zone-box zone-sell">
+                <div class="zone-title">📤 Região técnica de possível saída (venda)</div>
+                <div class="zone-range" id="sellZoneRange">--</div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

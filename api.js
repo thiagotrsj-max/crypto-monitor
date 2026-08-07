@@ -180,6 +180,27 @@ const CryptoAPI = (() => {
     };
   }
 
+  // ------------------------------------------------------------------------------------------
+  // Fear & Greed Index — fonte separada (alternative.me), gratuita e sem chave. É um índice de
+  // SENTIMENTO GERAL do mercado cripto (não é específico de um ativo). Reaproveita o mesmo
+  // fetchWithRetry (cache + retry) usado para a CoinGecko, mesmo sendo outro domínio, já que
+  // fetchWithRetry só depende da URL completa passada.
+  // ------------------------------------------------------------------------------------------
+  const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
+  const FNG_TTL = 10 * 60 * 1000; // o índice só é recalculado ~1x/dia; 10min de cache é de sobra
+
+  /** Retorna { value: 0-100, classification: 'Extreme Fear'|'Fear'|'Neutral'|'Greed'|'Extreme Greed', timestamp } */
+  async function getFearGreedIndex() {
+    const data = await fetchWithRetry(FNG_URL, 'feargreed', FNG_TTL);
+    const entry = data?.data?.[0];
+    if (!entry) throw new Error('Resposta inesperada do Fear & Greed Index');
+    return {
+      value: Number(entry.value),
+      classification: entry.value_classification,
+      timestamp: Number(entry.timestamp) * 1000,
+    };
+  }
+
   return {
     BASE_URL,
     TIMEFRAME_CONFIG,
@@ -187,5 +208,6 @@ const CryptoAPI = (() => {
     getMarketChart,
     getCandles,
     getDailySeries,
+    getFearGreedIndex,
   };
 })();
